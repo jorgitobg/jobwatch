@@ -1,0 +1,18 @@
+# Copy to sources.toml (git-ignored) and list the public job boards you follow.
+# `token` is the board identifier in the provider's public URL. Letters, digits, "-" and "_" only.
+# kind: greenhouse | ashby | lever
+
+[[source]]
+name = "Example Co"
+kind = "greenhouse"
+token = "example-co"
+
+[[source]]
+name = "Sample Labs"
+kind = "ashby"
+token = "sample-labs"
+
+[[source]]
+name = "Demo Works"
+kind = "lever"
+token = "demo-works"
