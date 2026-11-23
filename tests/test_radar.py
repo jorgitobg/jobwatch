@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import urllib.error
+import urllib.request
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 from jobwatch.config import Source
 from jobwatch.radar import run_once
-from jobwatch.transport import FetchError
+from jobwatch.transport import FetchError, HttpTransport
 from tests.helpers import FakeTransport
 
 A = Source("A", "greenhouse", "a")
@@ -72,3 +76,22 @@ def test_corrupt_state_is_reported_and_kept(tmp_path: Path) -> None:
     report = run_once((A,), FakeTransport({"greenhouse": gh(1)}), path, date(2026, 11, 1))
     assert "unreadable" in report.errors[0] and (tmp_path / "s.json.corrupt").exists()
     assert report.new == ()
+
+
+def test_exhausted_retries_do_not_touch_existing_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = tmp_path / "state.json"
+    run_once((A,), FakeTransport({"/a/": gh(1)}), state, date(2026, 11, 1))
+    before = state.read_bytes()
+    calls: list[int] = []
+
+    def down(request: urllib.request.Request, timeout: float) -> object:
+        calls.append(1)
+        raise urllib.error.HTTPError(request.full_url, 503, "x", None, None)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(urllib.request, "urlopen", down)
+    transport = HttpTransport(max_attempts=3, sleep=lambda _s: None)
+    report = run_once((A,), transport, state, date(2026, 11, 2))
+    assert report.answered == 0 and len(calls) == 3
+    assert state.read_bytes() == before

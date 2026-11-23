@@ -68,7 +68,7 @@ corrupt copy kept: True
 - **State is never silently reset.** An unreadable or invalid state file is moved to `state.json.corrupt` and reported. Writes are atomic (temp file, fsync, rename), so a crash leaves the old file or the new one.
 - **Retention is by recency.** The 5000 most recently seen ids are kept, not the lexically last ones.
 - **Provider data is untrusted.** Titles and locations are stripped of control characters, length-capped and Markdown-escaped; only plain `https` links are rendered, otherwise "no valid link". Parsers tolerate wrong types and missing fields.
-- **Bounded network use.** HTTPS only, a timeout, and a 5 MB response cap. Config tokens must match `[A-Za-z0-9_-]{1,64}`, so a config cannot redirect a request to another host or path.
+- **Bounded network use.** HTTPS only, a timeout, and a 5 MB response cap. Retries are opt-in (`--max-attempts N`, default 1 = none, at most 10): only GET requests that fail with HTTP 429/500/502/503/504, a network error or a timeout are retried, with exponential backoff or a numeric `Retry-After` capped at 30 s, inside a 60 s total deadline. Permanent errors (other 4xx), oversized responses and non-HTTPS URLs are never retried, and a source that still fails leaves the saved state untouched. Config tokens must match `[A-Za-z0-9_-]{1,64}`, so a config cannot redirect a request to another host or path.
 
 Decisions: [ADR 0001](docs/adr/0001-state-and-baselining.md), [ADR 0002](docs/adr/0002-untrusted-provider-data.md). Specification: [docs/spec/0001-jobwatch.md](docs/spec/0001-jobwatch.md).
 
