@@ -55,3 +55,26 @@ def test_demo_runs_and_is_deterministic(capsys: pytest.CaptureFixture[str]) -> N
     assert first == capsys.readouterr().out
     assert "no valid link" in first and "corrupt copy kept: True" in first
     assert "[x](https://evil" not in first and "javascript:" not in first
+
+
+def test_max_attempts_flag_is_validated(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit) as info:
+        main([*setup(tmp_path), "--max-attempts", "0"], FakeTransport({}))
+    assert info.value.code == 2
+
+
+def test_max_attempts_flag_builds_a_retrying_transport(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import urllib.error
+    import urllib.request
+
+    calls: list[int] = []
+
+    def down(request: urllib.request.Request, timeout: float) -> object:
+        calls.append(1)
+        raise urllib.error.HTTPError(request.full_url, 404, "x", None, None)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(urllib.request, "urlopen", down)
+    assert main([*setup(tmp_path), "--max-attempts", "3"]) == 3
+    assert len(calls) == 1  # 404 is permanent: never retried
