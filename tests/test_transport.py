@@ -70,10 +70,12 @@ class Script:
     def __init__(self, monkeypatch: pytest.MonkeyPatch, outcomes: list[object]) -> None:
         self.outcomes = list(outcomes)
         self.calls = 0
+        self.timeouts: list[float] = []
 
         def fake(request: urllib.request.Request, timeout: float) -> Response:
             assert request.get_method() == "GET"
             self.calls += 1
+            self.timeouts.append(timeout)
             outcome = self.outcomes.pop(0)
             if isinstance(outcome, Exception):
                 raise outcome
@@ -190,3 +192,12 @@ def test_non_https_is_refused_before_any_attempt(monkeypatch: pytest.MonkeyPatch
 def test_invalid_policy_is_rejected(kwargs: dict[str, Any]) -> None:
     with pytest.raises(ValueError):
         HttpTransport(**kwargs)
+
+
+def test_request_timeout_never_exceeds_the_time_left(monkeypatch: pytest.MonkeyPatch) -> None:
+    script = Script(monkeypatch, [http_error(503), http_error(503), http_error(503)])
+    clock = Clock()
+    with pytest.raises(FetchError):
+        retrying(clock, max_attempts=3, deadline_s=10.0, timeout_s=8.0).get("https://x.test/")
+    # t=0: min(8, 10); t=1: min(8, 9); t=3: min(8, 7)
+    assert script.timeouts == [8.0, 8.0, 7.0]

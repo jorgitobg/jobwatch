@@ -66,15 +66,35 @@ def test_max_attempts_flag_is_validated(tmp_path: Path) -> None:
 def test_max_attempts_flag_builds_a_retrying_transport(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    import io
     import urllib.error
     import urllib.request
 
+    import jobwatch.transport as transport_module
+
+    def no_sleep(seconds: float) -> None:
+        return None
+
     calls: list[int] = []
+    body = json.dumps(JOBS).encode()
 
-    def down(request: urllib.request.Request, timeout: float) -> object:
+    def flaky(request: urllib.request.Request, timeout: float) -> io.BytesIO:
         calls.append(1)
-        raise urllib.error.HTTPError(request.full_url, 404, "x", None, None)  # type: ignore[arg-type]
+        if len(calls) < 3:
+            raise urllib.error.HTTPError(request.full_url, 503, "x", None, None)  # type: ignore[arg-type]
+        return _Body(body)
 
-    monkeypatch.setattr(urllib.request, "urlopen", down)
-    assert main([*setup(tmp_path), "--max-attempts", "3"]) == 3
-    assert len(calls) == 1  # 404 is permanent: never retried
+    class _Body(io.BytesIO):
+        def __enter__(self) -> _Body:
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            self.close()
+
+    monkeypatch.setattr(urllib.request, "urlopen", flaky)
+    monkeypatch.setattr(transport_module.time, "sleep", no_sleep)
+    assert main([*setup(tmp_path), "--max-attempts", "3"]) == 0
+    assert len(calls) == 3
+    calls.clear()
+    assert main(setup(tmp_path)) == 3  # default: a single attempt, source down
+    assert len(calls) == 1

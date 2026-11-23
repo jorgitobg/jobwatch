@@ -48,7 +48,8 @@ class HttpTransport:
     By default there is exactly one attempt. With ``max_attempts > 1`` only GET requests that
     failed transiently (HTTP 429/500/502/503/504, network error, timeout) are retried, with
     exponential backoff (or a capped ``Retry-After`` in seconds) and never past ``deadline_s``
-    in total. Permanent errors, oversized responses and non-HTTPS URLs fail immediately.
+    in total (each request's timeout is also capped to the time left). Permanent errors,
+    oversized responses and non-HTTPS URLs fail immediately.
     """
 
     def __init__(
@@ -59,8 +60,8 @@ class HttpTransport:
         max_attempts: int = 1,
         deadline_s: float = 60.0,
         max_delay_s: float = 30.0,
-        sleep: Callable[[float], None] = time.sleep,
-        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] | None = None,
+        clock: Callable[[], float] | None = None,
     ) -> None:
         if not 1 <= max_attempts <= MAX_ATTEMPTS_LIMIT:
             raise ValueError(f"max_attempts must be between 1 and {MAX_ATTEMPTS_LIMIT}")
@@ -71,8 +72,8 @@ class HttpTransport:
         self._max_attempts = max_attempts
         self._deadline_s = deadline_s
         self._max_delay_s = max_delay_s
-        self._sleep = sleep
-        self._clock = clock
+        self._sleep = sleep or time.sleep
+        self._clock = clock or time.monotonic
 
     def get(self, url: str) -> bytes:
         if not url.startswith("https://"):
@@ -80,8 +81,9 @@ class HttpTransport:
         started = self._clock()
         attempt = 1
         while True:
+            remaining = self._deadline_s - (self._clock() - started)
             try:
-                return self._once(url)
+                return self._once(url, min(self._timeout_s, remaining))
             except _Transient as failure:
                 delay = self._delay(attempt, failure.retry_after_s)
                 if attempt >= self._max_attempts or (
@@ -95,10 +97,10 @@ class HttpTransport:
         wanted = BACKOFF_BASE_S * 2 ** (attempt - 1) if retry_after_s is None else retry_after_s
         return min(wanted, self._max_delay_s)
 
-    def _once(self, url: str) -> bytes:
+    def _once(self, url: str, timeout_s: float) -> bytes:
         request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})  # noqa: S310
         try:
-            with urllib.request.urlopen(request, timeout=self._timeout_s) as response:  # noqa: S310
+            with urllib.request.urlopen(request, timeout=timeout_s) as response:  # noqa: S310
                 data: bytes = response.read(self._max_bytes + 1)
         except urllib.error.HTTPError as error:
             reason = f"http status {error.code}"
