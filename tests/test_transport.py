@@ -41,6 +41,12 @@ def test_refuses_non_https() -> None:
         HttpTransport().get("file:///etc/passwd")
 
 
+@pytest.mark.parametrize("cap", [0, -1, 100_000_001])
+def test_max_bytes_out_of_range_is_rejected(cap: int) -> None:
+    with pytest.raises(ValueError, match="max_bytes"):
+        HttpTransport(max_bytes=cap)
+
+
 def test_response_size_is_capped(monkeypatch: pytest.MonkeyPatch) -> None:
     patch(monkeypatch, b"x" * 11)
     with pytest.raises(FetchError, match="too large"):

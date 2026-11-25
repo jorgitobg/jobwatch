@@ -9,6 +9,7 @@ from typing import Protocol
 
 USER_AGENT = "jobwatch/0.1 (+https://github.com/jorgitobg/jobwatch)"
 MAX_BYTES = 5_000_000
+MAX_BYTES_LIMIT = 100_000_000
 MAX_ATTEMPTS_LIMIT = 10
 TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504})
 BACKOFF_BASE_S = 1.0
@@ -65,6 +66,8 @@ class HttpTransport:
     ) -> None:
         if not 1 <= max_attempts <= MAX_ATTEMPTS_LIMIT:
             raise ValueError(f"max_attempts must be between 1 and {MAX_ATTEMPTS_LIMIT}")
+        if not 1 <= max_bytes <= MAX_BYTES_LIMIT:
+            raise ValueError(f"max_bytes must be between 1 and {MAX_BYTES_LIMIT}")
         if deadline_s <= 0 or max_delay_s < 0:
             raise ValueError("deadline_s must be positive and max_delay_s not negative")
         self._timeout_s = timeout_s

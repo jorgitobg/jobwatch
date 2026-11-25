@@ -68,19 +68,19 @@ corrupt copy kept: True
 - **State is never silently reset.** An unreadable or invalid state file is moved to `state.json.corrupt` and reported. Writes are atomic (temp file, fsync, rename), so a crash leaves the old file or the new one.
 - **Retention is by recency.** The 5000 most recently seen ids are kept, not the lexically last ones.
 - **Provider data is untrusted.** Titles and locations are stripped of control characters, length-capped and Markdown-escaped; only plain `https` links are rendered, otherwise "no valid link". Parsers tolerate wrong types and missing fields.
-- **Bounded network use.** HTTPS only, a timeout, and a 5 MB response cap. Retries are opt-in (`--max-attempts N`, default 1 = none, at most 10): only GET requests that fail with HTTP 429/500/502/503/504, a network error or a timeout are retried, with exponential backoff or a numeric `Retry-After` capped at 30 s, inside a 60 s total deadline. Permanent errors (other 4xx), oversized responses and non-HTTPS URLs are never retried, and a source that still fails leaves the saved state untouched. Config tokens must match `[A-Za-z0-9_-]{1,64}`, so a config cannot redirect a request to another host or path.
+- **Bounded network use.** HTTPS only, a timeout, and a response cap of 5 MB by default (`--max-bytes N` raises or lowers it, 1 to 100,000,000 bytes). Retries are opt-in (`--max-attempts N`, default 1 = none, at most 10): only GET requests that fail with HTTP 429/500/502/503/504, a network error or a timeout are retried, with exponential backoff or a numeric `Retry-After` capped at 30 s, inside a 60 s total deadline. Permanent errors (other 4xx), oversized responses and non-HTTPS URLs are never retried, and a source that still fails leaves the saved state untouched. Config tokens must match `[A-Za-z0-9_-]{1,64}`, so a config cannot redirect a request to another host or path.
 
 Decisions: [ADR 0001](docs/adr/0001-state-and-baselining.md), [ADR 0002](docs/adr/0002-untrusted-provider-data.md). Specification: [docs/spec/0001-jobwatch.md](docs/spec/0001-jobwatch.md).
 
 ## Checked against real providers
 
-The tests use fake transports. As a one-off check on 2026-11-05 (not part of CI, since it depends on third parties), the real transport and parsers were run against public boards on all three providers and returned well-formed roles (one Greenhouse board returned 216 remote roles, one Ashby board 153, and two Lever boards 28 and 1). One very large Lever board (about 6 MB) was rejected by the 5 MB cap, which is the intended behaviour and also a limitation: raise `max_bytes` in `HttpTransport` if you follow such a board.
+The tests use fake transports. As a one-off check on 2026-11-05 (not part of CI, since it depends on third parties), the real transport and parsers were run against public boards on all three providers and returned well-formed roles (one Greenhouse board returned 216 remote roles, one Ashby board 153, and two Lever boards 28 and 1). One very large Lever board (about 6 MB) was rejected by the 5 MB cap, which is the intended behaviour and also a limitation: pass a larger `--max-bytes` (for example `--max-bytes 10000000`) if you follow such a board. Memory use grows with the cap, and an oversized response is never retried.
 
 ## Limitations
 
 - "Remote" is decided from provider fields (a location containing "remote" on Greenhouse, `isRemote` on Ashby, `workplaceType` on Lever). Providers differ, so expect false positives and misses.
 - A role that disappears and reappears is not reported twice; it stays in state until it ages out of the retention window.
-- No retries or rate limiting beyond one request per source per run; schedule it politely (for example daily).
+- One request per source per run, with no rate limiting; retries are opt-in (`--max-attempts`) and only for transient failures. Boards whose response exceeds the cap (5 MB by default) are skipped until you raise `--max-bytes`. Schedule it politely (for example daily).
 - Only these three providers; adding one means a parser plus a URL template.
 
 ## Layout
