@@ -9,9 +9,25 @@ from pathlib import Path
 from jobwatch.config import ConfigError, load_config
 from jobwatch.radar import run_once
 from jobwatch.render import render_json, render_markdown
-from jobwatch.transport import MAX_ATTEMPTS_LIMIT, HttpTransport, Transport
+from jobwatch.transport import (
+    MAX_ATTEMPTS_LIMIT,
+    MAX_BYTES,
+    MAX_BYTES_LIMIT,
+    HttpTransport,
+    Transport,
+)
 
 DEFAULT_STATE = Path.home() / ".local" / "state" / "jobwatch" / "state.json"
+
+
+def _byte_cap(raw: str) -> int:
+    try:
+        value = int(raw)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{raw!r} is not an integer") from None
+    if not 1 <= value <= MAX_BYTES_LIMIT:
+        raise argparse.ArgumentTypeError(f"must be between 1 and {MAX_BYTES_LIMIT}")
+    return value
 
 
 def main(argv: Sequence[str] | None = None, transport: Transport | None = None) -> int:
@@ -27,6 +43,13 @@ def main(argv: Sequence[str] | None = None, transport: Transport | None = None) 
         metavar=f"1..{MAX_ATTEMPTS_LIMIT}",
         help="attempts per source for transient failures (default 1 = no retries)",
     )
+    parser.add_argument(
+        "--max-bytes",
+        type=_byte_cap,
+        default=MAX_BYTES,
+        metavar=f"1..{MAX_BYTES_LIMIT}",
+        help=f"largest response accepted per source, in bytes (default {MAX_BYTES})",
+    )
     args = parser.parse_args(argv)
     try:
         sources = load_config(args.config)
@@ -35,7 +58,7 @@ def main(argv: Sequence[str] | None = None, transport: Transport | None = None) 
         return 2
     report = run_once(
         sources,
-        transport or HttpTransport(max_attempts=args.max_attempts),
+        transport or HttpTransport(max_attempts=args.max_attempts, max_bytes=args.max_bytes),
         args.state,
         date.today(),
     )
